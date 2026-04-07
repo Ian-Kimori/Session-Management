@@ -1,113 +1,109 @@
 # Session-Management
 
-To perform a professional security audit on session management, you should use **Burp Suite Professional/Community** as your primary tool. It allows you to pause, inspect, and modify traffic between your browser and the server.
-
-Here is the end-to-end testing guide for each requirement.
+This is your comprehensive, step-by-step technical guide for each session management test case. For a "clean" audit, ensure you clear your browser cache/cookies between each major test section to avoid data contamination.
 
 ---
 
 ### 1. Bypass Session Schema & Token Randomness
-* **Goal:** Determine if session IDs are predictable or manually manipulatable.
-* **Tools:** Burp Suite (Sequencer), Browser DevTools.
-* **Steps:**
-    1.  Open Burp Suite and capture the login response (`Set-Cookie`).
-    2.  Right-click the request and select **"Send to Sequencer."**
-    3.  In Sequencer, select the cookie name (e.g., `PHPSESSID` or `session_id`).
-    4.  Click **"Start Live Capture"** and let it collect at least 500–1,000 tokens.
-    5.  Analyze the results for "Effective Entropy."
-* **Pass:** High entropy (completely random).
-* **Fail:** Low entropy; patterns found; tokens are Base64 encoded IDs (e.g., `dXNlcl8xMDE=` which is `user_101`).
+* **Component:** Cryptographic strength of the session identifier.
+* **Tool:** Burp Suite (Sequencer).
+* **The Steps:**
+    1.  Capture the login response containing the `Set-Cookie` header in Burp Proxy.
+    2.  Right-click the request -> **Send to Sequencer**.
+    3.  Select the cookie (e.g., `sessionid`). Click **Start Live Capture**.
+    4.  Collect at least 1,000 tokens, then click **Analyze Now**.
+* **Pass:** "Effective Entropy" > 100 bits.
+* **Fail:** Low entropy (< 64 bits) or visible patterns (e.g., tokens contain timestamps or sequential numbers).
+
 
 ### 2. Cookie Attributes (`HttpOnly` and `Secure`)
-* **Goal:** Ensure cookies cannot be stolen via JavaScript (XSS) or intercepted over non-HTTPS connections.
-* **Tools:** Burp Suite (Proxy History) or Browser DevTools (Application tab).
-* **Steps:**
-    1.  Log in to the application.
-    2.  In Burp, go to **Proxy > HTTP History**.
-    3.  Find the `Set-Cookie` header in the server's response.
-* **Pass:** Header looks like: `Set-Cookie: ID=123; Secure; HttpOnly; SameSite=Strict`.
-* **Fail:** The `Secure` or `HttpOnly` flags are missing.
+* **Component:** Client-side protection flags.
+* **Tool:** Burp Suite (Proxy History) or Browser DevTools.
+* **The Steps:**
+    1.  Log in and find the server's `Set-Cookie` header in the HTTP response.
+    2.  Check for the presence of the `Secure` and `HttpOnly` flags.
+* **Pass:** Header looks like: `Set-Cookie: ID=xyz; Secure; HttpOnly`.
+* **Fail:** Flags are missing.
+
 
 ### 3. Session Fixation
-* **Goal:** Check if the app reuses a pre-login session ID after authentication.
-* **Tools:** Burp Suite or two different browsers.
-* **Steps:**
-    1.  Navigate to the login page but **do not log in**. 
-    2.  Note the session cookie value (e.g., `ABC123`).
-    3.  Enter your credentials and log in.
-    4.  Check the session cookie value again.
-* **Pass:** The cookie value changes to something new (e.g., `XYZ789`).
-* **Fail:** The cookie remains `ABC123`.
+* **Component:** ID rotation during authentication.
+* **Tool:** Browser DevTools (Application Tab).
+* **The Steps:**
+    1.  Open the login page but **do not log in**. Record the current session cookie.
+    2.  Log in with your credentials.
+    3.  Check the cookie value again.
+* **Pass:** The session ID is completely different after login.
+* **Fail:** The session ID remains the same, meaning an attacker could "pre-set" an ID for a victim.
 
-### 4. Exposed Session Variables & Encryption
-* **Goal:** Ensure sensitive data isn't stored in plain text in cookies or the URL.
-* **Tools:** Burp Suite, Base64 Decoder.
-* **Steps:**
-    1.  Capture your session cookies.
-    2.  If they look like gibberish, try to decode them (Base64, Hex).
-    3.  Check if your username, role (e.g., `role=user`), or PII is inside the cookie.
-* **Pass:** Cookies contain only an opaque, random string.
-* **Fail:** Cookies contain `admin=false` (which you can change to `true`) or unencrypted user data.
+### 4. Exposed Session Variables (Encryption)
+* **Component:** Data integrity and confidentiality within the cookie.
+* **Tool:** Burp Decoder.
+* **The Steps:**
+    1.  Capture your session cookie. If it is Base64 (like your `eyJ...` example), decode it.
+    2.  Try to change a value (e.g., change `admin: false` to `true`).
+    3.  Re-encode and send the request.
+* **Pass:** The server rejects the modified cookie because the signature (`sign`) is now invalid.
+* **Fail:** The server accepts the modified data, granting unauthorized access or privileges.
 
 ### 5. Cross-Site Request Forgery (CSRF)
-* **Goal:** Verify if an attacker can force your browser to perform actions without your consent.
-* **Tools:** Burp Suite (Engagement Tools > Generate CSRF PoC).
-* **Steps:**
-    1.  Find a sensitive action (e.g., "Update Profile").
-    2.  Capture that request in Burp.
-    3.  Check if there is a random token in the body (e.g., `csrf_token=...`).
-    4.  Attempt to remove the token or change one character and resubmit.
-* **Pass:** Server returns `403 Forbidden` or an error.
-* **Fail:** The request is successful even without the token or with a fake one.
+* **Component:** Request origin validation.
+* **Tool:** Burp Suite (Generate CSRF PoC).
+* **The Steps:**
+    1.  Capture a sensitive request (e.g., "Change Password").
+    2.  Check for a random token in the request body/header.
+    3.  Attempt the request again while removing or changing the token.
+* **Pass:** The server returns an error (e.g., `403 Forbidden`).
+* **Fail:** The request succeeds without a valid CSRF token.
+
 
 ### 6. Logout Functionality & Server-Side Kill
-* **Goal:** Ensure the session is actually destroyed on the server, not just hidden from the browser.
-* **Tools:** Burp Suite (Repeater).
-* **Steps:**
-    1.  Log in and capture a request to a private page (e.g., `/settings`).
-    2.  Send that request to **Repeater**.
-    3.  In your browser, click **Logout**.
-    4.  Go back to Burp Repeater and click **Send** on that original request.
-* **Pass:** The server returns a `302` redirect to login or `401 Unauthorized`.
-* **Fail:** The server returns `200 OK` and the private data is still visible.
+* **Component:** Immediate session invalidation.
+* **Tool:** Burp Suite (Repeater).
+* **The Steps:**
+    1.  Log in and capture a request to a private page. Send it to **Repeater**.
+    2.  In the browser, click **Logout**.
+    3.  In Repeater, click **Send** on that original request.
+* **Pass:** Server returns a redirect to login or `401 Unauthorized`.
+* **Fail:** Server returns `200 OK` (the session is still "alive" on the server).
 
-### 7. Hard Session Timeout (e.g., 15 mins)
-* **Goal:** Ensure sessions expire after a set period of inactivity.
-* **Tools:** A timer/stopwatch and Burp Repeater.
-* **Steps:**
-    1.  Log in and capture a request.
-    2.  Do nothing for 16 minutes.
-    3.  After the time is up, resubmit that request in Burp Repeater.
-* **Pass:** Session is expired; you are forced to log in again.
-* **Fail:** The session is still active after the timeout period.
+### 7. Hard Session Timeout (15 mins)
+* **Component:** Inactivity expiration.
+* **Tool:** Stopwatch & Burp Repeater.
+* **The Steps:**
+    1.  Capture a valid authenticated request.
+    2.  Wait exactly 16 minutes without performing any actions.
+    3.  Resend the captured request.
+* **Pass:** Request fails due to an expired session.
+* **Fail:** Request still succeeds.
 
 ### 8. Session Variable Overloading (Puzzling)
-* **Goal:** Check if one part of the app can "confuse" another part's session variables.
-* **Tools:** Burp Suite.
-* **Steps:**
-    1.  Start a "Forgot Password" flow for `User A`.
-    2.  In a separate tab, log in as `User B`.
-    3.  Go back to the "Forgot Password" tab and see if it now thinks you are `User B`.
-* **Pass:** The flows remain isolated.
-* **Fail:** Initiating one process changes the state of another authenticated process.
+* **Component:** Variable isolation.
+* **Tool:** Two different browser tabs.
+* **The Steps:**
+    1.  Start a multi-step process (like a checkout or password reset) for Account A in Tab 1.
+    2.  In Tab 2, log in as Account B.
+    3.  Finish the process in Tab 1.
+* **Pass:** The process completes for Account A only.
+* **Fail:** The app uses Account B's information to complete Account A's process.
 
-### 9. Session Hijacking
-* **Goal:** Verify if a session can be used from a completely different environment.
-* **Tools:** Two different machines (or a VM and a Host).
-* **Steps:**
-    1.  Log in on Machine 1. Copy the session cookie string.
-    2.  On Machine 2, open the same URL.
-    3.  Open DevTools > Application > Cookies and manually **inject** the cookie from Machine 1.
-    4.  Refresh the page.
-* **Pass:** The server detects the change in IP/User-Agent and blocks access (Ideal) or the session management is otherwise hardened.
-* **Fail:** You are instantly logged in as the user from Machine 1.
+### 9. Session Hijacking (Replay)
+* **Component:** Environment/Hardware binding.
+* **Tool:** Two different machines (or a VPN).
+* **The Steps:**
+    1.  Log in on Machine 1 and copy the session cookie.
+    2.  Paste that cookie into a browser on Machine 2 (different IP).
+    3.  Refresh the page.
+* **Pass:** Machine 2 is forced to log in.
+* **Fail:** Machine 2 is instantly logged in as the user.
 
-### 10. Multiple Concurrent Sessions
-* **Goal:** Ensure a single account cannot be logged in from multiple places at once.
-* **Tools:** Two different browsers (Chrome and Firefox).
-* **Steps:**
+
+### 10. Concurrent Sessions
+* **Component:** Single session enforcement.
+* **Tool:** Two different browsers (Chrome and Firefox).
+* **The Steps:**
     1.  Log in on Chrome.
-    2.  Log in on Firefox with the same credentials.
-    3.  Refresh the page on Chrome.
-* **Pass:** Chrome is logged out automatically (the newer session killed the old one).
-* **Fail:** Both browsers remain logged in simultaneously.
+    2.  While Chrome is open, log in with the **same** account on Firefox.
+    3.  Go back to Chrome and refresh.
+* **Pass:** Chrome is automatically logged out.
+* **Fail:** Both sessions remain active.

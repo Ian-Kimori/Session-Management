@@ -1,123 +1,79 @@
 # Session-Management
 
-To test these requirements professionally on a Zabbix-like infrastructure, you should follow this structured methodology. We will use the Zabbix `zbx_session` cookie (which contains a Base64-encoded JSON object and a signature) as our primary target.
+To professionally audit these session management controls, you must validate both the **cryptographic strength** of the tokens and the **logic** of the server's session lifecycle.
+
+Below is the clean, step-by-step methodology for each requirement based on your specific application environment.
 
 ---
 
 ### 1. Bypass Session Schema & Token Randomness
-* **The Goal:** Ensure the `sessionid` isn't predictable and the `sign` prevents forgery.
-* **Step-by-Step:**
-    1.  **Sequencer Test:** Capture the login response in Burp. Right-click the `zbx_session` -> **Send to Sequencer**. Highlight the `sessionid` value. Collect 2,000+ samples.
-    2.  **Forgery Test:** In **Burp Decoder**, decode your cookie. Change a value (e.g., `serverCheckResult: true` to `false`). Re-encode it and try to use it in **Repeater**.
-* **Validation:** * **PASS:** Sequencer shows "Excellent" entropy (>100 bits). The server rejects the modified cookie (Signature Mismatch).
-    * **FAIL:** Entropy is low (predictable) or the server accepts the modified data.
-
-
-
----
+**Goal:** Ensure session IDs cannot be guessed or forged by manipulating unsigned data.
+1.  **Gather Samples:** Use **Burp Sequencer** to capture 2,000+ session tokens (e.g., `sessionid` within your `zbx_session` cookie).
+2.  **Statistical Analysis:** Analyze the samples to ensure they pass **FIPS 140-2** tests for randomness. High entropy (typically >100 bits) is required.
+3.  **Cookie Manipulation:** Decode the Base64 cookie payload. Modify a variable (like a UserID or timestamp), re-encode it, and send it back to the server.
+*   **Validation:** **PASS** if the server rejects the forged cookie due to a signature mismatch. **FAIL** if the server accepts the modified data.
 
 ### 2. Cookie Attributes (`HttpOnly` & `Secure`)
-* **The Goal:** Ensure the cookie cannot be stolen via Javascript (XSS) or unencrypted connections.
-* **Step-by-Step:**
-    1.  Log in and find the `Set-Cookie` header in the **Burp Proxy** history.
-* **Validation:**
-    * **PASS:** Header contains `HttpOnly; Secure`.
-    * **FAIL:** If `Secure` is missing (risky over HTTPS) or `HttpOnly` is missing.
-
----
+**Goal:** Prevent session theft via XSS (HttpOnly) or network sniffing (Secure).
+1.  **Capture Response:** Observe the `Set-Cookie` header in your HTTP history during login.
+2.  **Verify Flags:** Look for the specific strings `; HttpOnly` and `; Secure`.
+*   **Validation:** **PASS** if both flags are present. **FAIL** if either is missing, especially on an HTTPS production site.
 
 ### 3. Session Fixation
-* **The Goal:** Ensure the session ID rotates during the transition from "Guest" to "Authenticated."
-* **Step-by-Step:**
-    1.  Go to the Zabbix login page. Note the `sessionid` in your browser's DevTools.
-    2.  Log in with valid credentials.
-    3.  Check the `sessionid` again.
-* **Validation:**
-    * **PASS:** The value is completely different after login.
-    * **FAIL:** The value remains identical, meaning an attacker can "fix" a session ID for a victim.
+**Goal:** Ensure the server issues a brand-new ID upon successful authentication.
+1.  **Establish Pre-Auth ID:** Visit the login page but do not log in. Note the `sessionid`.
+2.  **Authenticate:** Log in with valid credentials.
+3.  **Compare IDs:** Check the `sessionid` again.
+*   **Validation:** **PASS** if the ID changed completely. **FAIL** if the same ID from the login page is maintained after authentication.
 
----
-
-### 4. Exposed Session Variables & Hijacking
-* **The Goal:** Check if sensitive data is leaked in the URL or if the session is bound to the user's environment.
-* **Step-by-Step:**
-    1.  **Exposed Variables:** Navigate through Zabbix. Check if the `sessionid` appears in the URL (GET parameters).
-    2.  **Hijacking/Binding:** Copy your `zbx_session` cookie. Open a second browser (e.g., Firefox) or use a VPN to change your IP. Try to access the dashboard by pasting the cookie.
-* **Validation:**
-    * **PASS:** Session is only in the cookie. Access is denied when the IP/User-Agent changes (Environment Binding).
-    * **FAIL:** Session ID is in the URL. Access is granted from a different IP/Machine (Hijacking possible).
-
----
+### 4. Exposed Session Variables
+**Goal:** Ensure sensitive identifiers aren't leaked in URLs, headers, or local storage.
+1.  **URL Check:** Click through several pages and check if the session ID appears in the URL (e.g., `?sid=...`).
+2.  **Header Check:** Check the `Referer` header in outgoing requests to ensure the ID isn't leaked to third-party domains.
+3.  **Payload Check:** Decode the cookie and ensure it doesn't contain plaintext sensitive data like passwords or internal IP addresses.
+*   **Validation:** **PASS** if the ID is strictly confined to the `Cookie` header and payload is encrypted/signed.
 
 ### 5. Cross-Site Request Forgery (CSRF)
-* **The Goal:** Ensure state-changing actions (like disabling a host) require more than just a cookie.
-* **Step-by-Step:**
-    1.  Go to **Data collection > Hosts**. Click "Disable" on a host.
-    2.  In **Burp Repeater**, locate the `sid` parameter in the JSON body or URL.
-    3.  Delete the `sid` and send the request.
-* **Validation:**
-    * **PASS:** Server returns `403 Forbidden` or an "Incorrect SID" error.
-    * **FAIL:** The action is performed successfully.
+**Goal:** Ensure attackers cannot force a user's browser to perform actions (e.g., "Delete Host").
+1.  **Identify Action:** Find a POST request that changes data (e.g., updating user settings).
+2.  **Test Token Requirement:** Use **Burp Repeater** to send the request without the `sid` or CSRF token parameter.
+3.  **Verify Origin:** Change the `Origin` header to a different domain.
+*   **Validation:** **PASS** if the server returns a `403 Forbidden`. **FAIL** if the action completes based solely on the session cookie.
 
 
 
----
+### 6. Logout Functionality
+**Goal:** Ensure the session is destroyed on the server, not just in the browser.
+1.  **Copy Token:** Capture a valid, active `zbx_session` cookie.
+2.  **Perform Logout:** Click "Logout" in the UI.
+3.  **Replay Attack:** In **Burp Repeater**, use the "old" cookie to request a private dashboard.
+*   **Validation:** **PASS** if the server returns `401 Unauthorized`. **FAIL** if the dashboard still loads (indicating the session is still "alive" on the server).
 
-### 6. Logout Functionality & Server-Side Invalidation
-* **The Goal:** Ensure the session is "dead" on the server, not just deleted from the browser.
-* **Step-by-Step:**
-    1.  Capture a dashboard request in **Repeater**.
-    2.  Click **Logout** in your browser.
-    3.  Go back to **Repeater** and send the request again.
-* **Validation:**
-    * **PASS:** `401 Unauthorized` or `302 Redirect` to login.
-    * **FAIL:** `200 OK` (This is your current finding: the session is still active on the server).
+### 7. Hard Session Timeout (15-Minute Inactivity)
+**Goal:** Automatically terminate sessions left unattended.
+1.  **Set Idle Time:** Log in and wait exactly 16 minutes without clicking anything.
+2.  **Resume Activity:** Refresh the page or resend a request.
+*   **Validation:** **PASS** if you are redirected to the login screen. **FAIL** if the session is still active (e.g., your 5-day persistence finding).
 
----
+### 8. Session Variable Overloading (Session Puzzling)
+**Goal:** Ensure variables from different application modules don't bleed into each other.
+1.  **Multi-Module Action:** Start a sensitive process in Tab A (e.g., Password Reset).
+2.  **Context Switch:** In Tab B, perform a different action (e.g., viewing a different user's profile).
+3.  **Complete Original Action:** Finish the process in Tab A.
+*   **Validation:** **PASS** if the action completes correctly for the intended user/target. **FAIL** if Tab A's action "puzzles" with the data from Tab B.
 
-### 7. Hard Session Timeout (15 Minutes)
-* **The Goal:** Enforce inactivity expiration.
-* **Step-by-Step:**
-    1.  Log in. Close the tab. Do not interact for 16 minutes.
-    2.  Re-open the tab or replay the request in **Repeater**.
-* **Validation:**
-    * **PASS:** Session is expired; you are forced to re-login.
-    * **FAIL:** Access is granted (Your "5-day persistence" finding).
+### 9. Session Hijacking (Environment Binding)
+**Goal:** Prevent a stolen cookie from being used in a different environment.
+1.  **Capture Token:** Copy your active cookie.
+2.  **Switch Context:** Open a different browser (e.g., Firefox) or change your IP (e.g., using a VPN).
+3.  **Injected Access:** Manually add the cookie to the new browser and attempt to access the app.
+*   **Validation:** **PASS** if access is denied because the server detects a change in IP or User-Agent. **FAIL** if you gain access (Hijacking successful).
 
----
 
-### 8. Session Variable Overloading (Puzzling)
-* **The Goal:** Ensure variables don't leak between different modules or users.
-* **Step-by-Step:**
-    1.  **Tab 1:** Open the "User Profile" page for User A.
-    2.  **Tab 2:** Open the "Data collection" page for Host Group B.
-    3.  In **Tab 1**, click "Save."
-* **Validation:**
-    * **PASS:** Only User A's profile is updated.
-    * **FAIL:** The application mistakenly applies settings to the host group or crashes because variables were "puzzled."
 
----
-
-### 9. Multiple Concurrent Sessions
-* **The Goal:** Prevent a single account from being used in multiple locations simultaneously.
-* **Step-by-Step:**
-    1.  Log in on **Chrome**.
-    2.  Log in as the *same user* on **Firefox**.
-    3.  Refresh the page on **Chrome**.
-* **Validation:**
-    * **PASS:** The Chrome session is automatically terminated.
-    * **FAIL:** Both browsers remain logged in at the same time.
-
----
-
-### Summary Checklist for the Report
-
-| Test Case | Method | Pass | Fail |
-| :--- | :--- | :--- | :--- |
-| **Randomness** | Sequencer | High Entropy | Patterns Found |
-| **Logout** | Repeater | Reject after logout | Accept after logout |
-| **Timeout** | Stopwatch | Inactive at 15m | Active at 5 days |
-| **Attributes** | Proxy | `Secure; HttpOnly` | Flags missing |
-| **Concurrent** | 2 Browsers | Kills old session | Multiple sessions |
-
-**Next Step:** Since you have confirmed the **Logout** and **Timeout** tests are currently failing, focus your report on the **Server-Side State Management** failure. This is the root cause for both findings.
+### 10. Concurrent User Sessions
+**Goal:** Enforce a "Single Sign-on" rule where one login kills previous logins.
+1.  **Initial Login:** Log in on Browser 1.
+2.  **Concurrent Login:** Log in as the same user on Browser 2.
+3.  **Verify Browser 1:** Refresh the page on Browser 1.
+*   **Validation:** **PASS** if Browser 1 is automatically logged out. **FAIL** if both sessions remain active simultaneously.

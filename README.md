@@ -13,6 +13,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Cookie Manipulation:** Decode the Base64 cookie payload. Modify a variable (like a UserID or timestamp), re-encode it, and send it back to the server.
 *   **Validation:**
       **PASS** if the server rejects the forged cookie due to a signature mismatch.
+      
       **FAIL** if the server accepts the modified data.
 
 ### 2. Cookie Attributes (`HttpOnly` & `Secure`)
@@ -21,6 +22,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 2.  **Verify Flags:** Look for the specific strings `; HttpOnly` and `; Secure`.
 *   **Validation:**
       **PASS** if both flags are present.
+      
       **FAIL** if either is missing, especially on an HTTPS production site.
 
 ### 3. Session Fixation
@@ -30,6 +32,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Compare IDs:** Check the `sessionid` again.
 *   **Validation:**
       **PASS** if the ID changed completely.
+      
       **FAIL** if the same ID from the login page is maintained after authentication.
 
 ### 4. Exposed Session Variables
@@ -47,6 +50,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Verify Origin:** Change the `Origin` header to a different domain.
 *   **Validation:**
       **PASS** if the server returns a `403 Forbidden`.
+      
       **FAIL** if the action completes based solely on the session cookie.
 
 ### 6. Logout Functionality
@@ -56,6 +60,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Replay Attack:** In **Burp Repeater**, use the "old" cookie to request a private dashboard.
 *   **Validation:**
       **PASS** if the server returns `401 Unauthorized`.
+      
       **FAIL** if the dashboard still loads (indicating the session is still "alive" on the server).
 
 ### 7. Hard Session Timeout (15-Minute Inactivity)
@@ -64,6 +69,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 2.  **Resume Activity:** Refresh the page or resend a request.
 *   **Validation:**
       **PASS** if you are redirected to the login screen.
+      
       **FAIL** if the session is still active (e.g., your 5-day persistence finding).
 
 ### 8. Session Variable Overloading (Session Puzzling)
@@ -73,6 +79,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Complete Original Action:** Finish the process in Tab A.
 *   **Validation:**
       **PASS** if the action completes correctly for the intended user/target.
+      
       **FAIL** if Tab A's action "puzzles" with the data from Tab B.
 
 ### 9. Session Hijacking (Environment Binding)
@@ -82,6 +89,7 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Injected Access:** Manually add the cookie to the new browser and attempt to access the app.
 *   **Validation:**
       **PASS** if access is denied because the server detects a change in IP or User-Agent.
+      
       **FAIL** if you gain access (Hijacking successful).
 
 ### 10. Concurrent User Sessions
@@ -91,4 +99,5 @@ Below is the clean, step-by-step methodology for each requirement based on your 
 3.  **Verify Browser 1:** Refresh the page on Browser 1.
 *   **Validation:**
       **PASS** if Browser 1 is automatically logged out.
+      
       **FAIL** if both sessions remain active simultaneously.

@@ -1,109 +1,136 @@
 # Session-Management
 
-This is your comprehensive, step-by-step technical guide for each session management test case. For a "clean" audit, ensure you clear your browser cache/cookies between each major test section to avoid data contamination.
+This is the definitive, step-by-step validation guide for your session management audit. For a clean report, each test must have a clear **Action**, **Tool**, and **Evidence** for the result.
 
 ---
 
-### 1. Bypass Session Schema & Token Randomness
-* **Component:** Cryptographic strength of the session identifier.
-* **Tool:** Burp Suite (Sequencer).
+### 1. Token Randomness & Forgery (Bypass Schema)
+* **The Component:** The statistical unpredictability of the `sessionid`.
+* **The Tools:** Burp Sequencer.
+* **Where FIPS comes in:** **FIPS 140-2** is a security standard that defines several statistical tests (Monobit, Poker, Runs). Sequencer runs these to see if your `sessionid` follows any mathematical pattern.
 * **The Steps:**
-    1.  Capture the login response containing the `Set-Cookie` header in Burp Proxy.
-    2.  Right-click the request -> **Send to Sequencer**.
-    3.  Select the cookie (e.g., `sessionid`). Click **Start Live Capture**.
-    4.  Collect at least 1,000 tokens, then click **Analyze Now**.
-* **Pass:** "Effective Entropy" > 100 bits.
-* **Fail:** Low entropy (< 64 bits) or visible patterns (e.g., tokens contain timestamps or sequential numbers).
+    1.  Capture the login response in Burp Proxy.
+    2.  Right-click the `zbx_session` cookie -> **Send to Sequencer**.
+    3.  Select the `sessionid` part of the token and click **Start Live Capture**.
+    4.  Analyze after 1,000+ samples.
+* **Validation:** * **Pass:** "Overall quality: Excellent." Effective entropy > 100 bits.
+    * **Fail:** "Significant" patterns found or entropy < 64 bits.
 
 
-### 2. Cookie Attributes (`HttpOnly` and `Secure`)
-* **Component:** Client-side protection flags.
-* **Tool:** Burp Suite (Proxy History) or Browser DevTools.
-* **The Steps:**
-    1.  Log in and find the server's `Set-Cookie` header in the HTTP response.
-    2.  Check for the presence of the `Secure` and `HttpOnly` flags.
-* **Pass:** Header looks like: `Set-Cookie: ID=xyz; Secure; HttpOnly`.
-* **Fail:** Flags are missing.
+---
 
+### 2. Cookie Attributes (`HttpOnly` & `Secure`)
+* **The Component:** Flags that protect the cookie from being accessed by scripts or sent over plain text.
+* **The Tools:** Burp Proxy / Browser DevTools.
+* **The Steps:** 1.  Log in and look at the `Set-Cookie` header in the response.
+* **Validation:**
+    * **Pass:** The header includes both `HttpOnly` and `Secure`.
+    * **Fail:** If `Secure` is missing (common in local environments) or `HttpOnly` is missing. 
+
+---
 
 ### 3. Session Fixation
-* **Component:** ID rotation during authentication.
-* **Tool:** Browser DevTools (Application Tab).
+* **The Component:** ID rotation during the authentication "flow."
+* **The Tools:** Browser DevTools (Application Tab).
 * **The Steps:**
-    1.  Open the login page but **do not log in**. Record the current session cookie.
-    2.  Log in with your credentials.
-    3.  Check the cookie value again.
-* **Pass:** The session ID is completely different after login.
-* **Fail:** The session ID remains the same, meaning an attacker could "pre-set" an ID for a victim.
+    1.  Open the login page. Note the `sessionid` before logging in.
+    2.  Enter credentials and log in.
+    3.  Check the `sessionid` again.
+* **Validation:**
+    * **Pass:** The cookie value changes completely after login.
+    * **Fail:** The cookie value remains the same. 
 
-### 4. Exposed Session Variables (Encryption)
-* **Component:** Data integrity and confidentiality within the cookie.
-* **Tool:** Burp Decoder.
+---
+
+### 4. Exposed Variables & Encryption (Manipulation)
+* **The Component:** Data integrity within the JSON structure.
+* **The Tools:** Burp Decoder & Repeater.
 * **The Steps:**
-    1.  Capture your session cookie. If it is Base64 (like your `eyJ...` example), decode it.
-    2.  Try to change a value (e.g., change `admin: false` to `true`).
-    3.  Re-encode and send the request.
-* **Pass:** The server rejects the modified cookie because the signature (`sign`) is now invalid.
-* **Fail:** The server accepts the modified data, granting unauthorized access or privileges.
+    1.  Take your Base64 cookie and decode it in **Decoder**.
+    2.  Modify a non-signature field (e.g., change a user ID or a timestamp).
+    3.  Re-encode and send the request in **Repeater**.
+* **Validation:**
+    * **Pass:** The server returns an error or forces a logout (Signature invalid).
+    * **Fail:** The server accepts the request (Data manipulation possible).
+
+---
 
 ### 5. Cross-Site Request Forgery (CSRF)
-* **Component:** Request origin validation.
-* **Tool:** Burp Suite (Generate CSRF PoC).
+* **The Component:** Origin validation for sensitive actions.
+* **The Tools:** Burp CSRF PoC Generator.
 * **The Steps:**
-    1.  Capture a sensitive request (e.g., "Change Password").
-    2.  Check for a random token in the request body/header.
-    3.  Attempt the request again while removing or changing the token.
-* **Pass:** The server returns an error (e.g., `403 Forbidden`).
-* **Fail:** The request succeeds without a valid CSRF token.
+    1.  Capture a POST request (e.g., "Add User").
+    2.  Remove the `sid` or `auth` parameter from the body.
+* **Validation:**
+    * **Pass:** Server rejects with `403 Forbidden`.
+    * **Fail:** Server executes the action using only the cookie.
 
 
-### 6. Logout Functionality & Server-Side Kill
-* **Component:** Immediate session invalidation.
-* **Tool:** Burp Suite (Repeater).
+---
+
+### 6. Logout & Hijacking (Server-Side Kill)
+* **The Component:** Immediate destruction of the session in the server database.
+* **The Tools:** Burp Repeater.
 * **The Steps:**
-    1.  Log in and capture a request to a private page. Send it to **Repeater**.
-    2.  In the browser, click **Logout**.
-    3.  In Repeater, click **Send** on that original request.
-* **Pass:** Server returns a redirect to login or `401 Unauthorized`.
-* **Fail:** Server returns `200 OK` (the session is still "alive" on the server).
+    1.  Log in and capture a dashboard request in Repeater.
+    2.  Log out in the browser.
+    3.  Resend the request in Repeater.
+* **Validation:**
+    * **Pass:** `401 Unauthorized`.
+    * **Fail:** `200 OK` (This is your current result: the session is still active on the server).
 
-### 7. Hard Session Timeout (15 mins)
-* **Component:** Inactivity expiration.
-* **Tool:** Stopwatch & Burp Repeater.
+
+---
+
+### 7. Timeouts (Hard & Idle)
+* **The Component:** Temporal expiration (15 minutes).
+* **The Tools:** Stopwatch & Burp Repeater.
 * **The Steps:**
-    1.  Capture a valid authenticated request.
-    2.  Wait exactly 16 minutes without performing any actions.
-    3.  Resend the captured request.
-* **Pass:** Request fails due to an expired session.
-* **Fail:** Request still succeeds.
+    1.  Capture an active request. Wait 16 minutes without using the app.
+    2.  Resend the request.
+* **Validation:**
+    * **Pass:** Session is expired.
+    * **Fail:** Request still works (Inactivity timeout failure).
 
-### 8. Session Variable Overloading (Puzzling)
-* **Component:** Variable isolation.
-* **Tool:** Two different browser tabs.
+---
+
+### 8. Session Puzzling (Variable Overloading)
+* **The Component:** Isolation of variables across modules.
+* **The Tools:** Two Browser Tabs.
 * **The Steps:**
-    1.  Start a multi-step process (like a checkout or password reset) for Account A in Tab 1.
-    2.  In Tab 2, log in as Account B.
-    3.  Finish the process in Tab 1.
-* **Pass:** The process completes for Account A only.
-* **Fail:** The app uses Account B's information to complete Account A's process.
+    1.  Start a "Reset Password" flow in Tab 1 for User A.
+    2.  Log in as User B in Tab 2.
+    3.  Finish the flow in Tab 1.
+* **Validation:**
+    * **Pass:** Flow is isolated to User A.
+    * **Fail:** Flow affects User B (Session pollution).
 
-### 9. Session Hijacking (Replay)
-* **Component:** Environment/Hardware binding.
-* **Tool:** Two different machines (or a VPN).
-* **The Steps:**
-    1.  Log in on Machine 1 and copy the session cookie.
-    2.  Paste that cookie into a browser on Machine 2 (different IP).
-    3.  Refresh the page.
-* **Pass:** Machine 2 is forced to log in.
-* **Fail:** Machine 2 is instantly logged in as the user.
+---
 
-
-### 10. Concurrent Sessions
-* **Component:** Single session enforcement.
-* **Tool:** Two different browsers (Chrome and Firefox).
+### 9. Concurrent Sessions (The "Single Login" Rule)
+* **The Component:** Enforcing one active session per account.
+* **The Tools:** Two different browsers.
 * **The Steps:**
     1.  Log in on Chrome.
-    2.  While Chrome is open, log in with the **same** account on Firefox.
-    3.  Go back to Chrome and refresh.
-* **Pass:** Chrome is automatically logged out.
-* **Fail:** Both sessions remain active.
+    2.  Log in as the same user on Firefox.
+    3.  Refresh the page on Chrome.
+* **Validation:**
+    * **Pass:** Chrome is logged out.
+    * **Fail:** Both sessions remain active.
+
+---
+
+### 10. Rate Limiting & Brute Force
+* **The Component:** Defense against automated guessing.
+* **The Tools:** Burp Intruder.
+* **The Steps:** 1.  Send a login request to Intruder.
+    2.  Attempt 50 failed logins in 10 seconds.
+* **Validation:**
+    * **Pass:** Server returns `429 Too Many Requests` or locks the account.
+    * **Fail:** Server processes all 50 attempts (Vulnerable to Brute-force).
+
+---
+
+### Summary of Result Interpretation
+* **Persistent vs. Session Cookie:** Check if the cookie has an `Expires` date. If it does, it's **Persistent**. If not, it's a **Session** cookie.
+* **Audit Result:** Your application **Passes 1 and 3**, but **Fails 2, 6, 7, and 9**. This represents a significant risk where stolen sessions can be used indefinitely across different browsers without expiring.

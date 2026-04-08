@@ -1,115 +1,123 @@
 # Session-Management
 
-To test these professionally, you must combine **automated statistical analysis** (Sequencer) with **manual logic testing** (Repeater). Using your Zabbix request as the baseline, here is the professional execution roadmap.
+To test these requirements professionally on a Zabbix-like infrastructure, you should follow this structured methodology. We will use the Zabbix `zbx_session` cookie (which contains a Base64-encoded JSON object and a signature) as our primary target.
 
 ---
 
-### 1. Token Randomness & Forgery (Bypass Schema)
-* **The Goal:** Prove the `sessionid` cannot be predicted.
-* **Tool:** **Burp Sequencer**.
-* **Method:** Capture your request. Right-click the `zbx_session` cookie -> **Send to Sequencer**. Highlight only the `sessionid` value. Run for **1,500+ samples**.
-* **Validation:**
-    * **PASS:** Entropy > 100 bits. FIPS 140-2 tests show "Excellent" randomness.
-    * **FAIL:** Significant bit-level patterns found.
+### 1. Bypass Session Schema & Token Randomness
+* **The Goal:** Ensure the `sessionid` isn't predictable and the `sign` prevents forgery.
+* **Step-by-Step:**
+    1.  **Sequencer Test:** Capture the login response in Burp. Right-click the `zbx_session` -> **Send to Sequencer**. Highlight the `sessionid` value. Collect 2,000+ samples.
+    2.  **Forgery Test:** In **Burp Decoder**, decode your cookie. Change a value (e.g., `serverCheckResult: true` to `false`). Re-encode it and try to use it in **Repeater**.
+* **Validation:** * **PASS:** Sequencer shows "Excellent" entropy (>100 bits). The server rejects the modified cookie (Signature Mismatch).
+    * **FAIL:** Entropy is low (predictable) or the server accepts the modified data.
+
 
 
 ---
 
-### 2. Cookie Attributes (HttpOnly & Secure)
-* **The Goal:** Ensure session data isn't leaked via XSS or non-HTTPS channels.
-* **Tool:** **Burp Proxy** (HTTP History).
-* **Method:** Examine the `Set-Cookie` header in the server's response.
+### 2. Cookie Attributes (`HttpOnly` & `Secure`)
+* **The Goal:** Ensure the cookie cannot be stolen via Javascript (XSS) or unencrypted connections.
+* **Step-by-Step:**
+    1.  Log in and find the `Set-Cookie` header in the **Burp Proxy** history.
 * **Validation:**
-    * **PASS:** Both `HttpOnly` and `Secure` flags are present.
-    * **FAIL:** Either flag is missing (Note: Your previous Zabbix response was missing `Secure`).
+    * **PASS:** Header contains `HttpOnly; Secure`.
+    * **FAIL:** If `Secure` is missing (risky over HTTPS) or `HttpOnly` is missing.
 
 ---
 
 ### 3. Session Fixation
-* **The Goal:** Ensure the server forces a new ID upon login.
-* **Tool:** **DevTools** (Application Tab).
-* **Method:**
-  1.  Note the `sessionid` on the login page (pre-auth).
-  2.  Log in.
-  3.  Compare the new `sessionid` to the pre-auth value.
+* **The Goal:** Ensure the session ID rotates during the transition from "Guest" to "Authenticated."
+* **Step-by-Step:**
+    1.  Go to the Zabbix login page. Note the `sessionid` in your browser's DevTools.
+    2.  Log in with valid credentials.
+    3.  Check the `sessionid` again.
 * **Validation:**
-    * **PASS:** The value changes completely.
-    * **FAIL:** The ID remains the same, allowing an attacker to "fix" a victim's ID.
+    * **PASS:** The value is completely different after login.
+    * **FAIL:** The value remains identical, meaning an attacker can "fix" a session ID for a victim.
 
 ---
 
-### 4. Exposed Variables & Encryption
-* **The Goal:** Ensure the `sign` (signature) prevents data tampering.
-* **Tool:** **Burp Decoder** & **Repeater**.
-* **Method:** Decode your Base64 cookie. Change a value (e.g., `serverCheckResult`: `true` to `false`). Re-encode and send.
+### 4. Exposed Session Variables & Hijacking
+* **The Goal:** Check if sensitive data is leaked in the URL or if the session is bound to the user's environment.
+* **Step-by-Step:**
+    1.  **Exposed Variables:** Navigate through Zabbix. Check if the `sessionid` appears in the URL (GET parameters).
+    2.  **Hijacking/Binding:** Copy your `zbx_session` cookie. Open a second browser (e.g., Firefox) or use a VPN to change your IP. Try to access the dashboard by pasting the cookie.
 * **Validation:**
-    * **PASS:** Server returns an error (Signature Mismatch).
-    * **FAIL:** Server accepts the modified data.
+    * **PASS:** Session is only in the cookie. Access is denied when the IP/User-Agent changes (Environment Binding).
+    * **FAIL:** Session ID is in the URL. Access is granted from a different IP/Machine (Hijacking possible).
 
 ---
 
 ### 5. Cross-Site Request Forgery (CSRF)
-* **The Goal:** Ensure sensitive actions (like "Delete Host") require a unique token.
-* **Tool:** **Burp CSRF PoC Generator**.
-* **Method:** Generate a PoC for your `widget.tophosts.view` request. Try removing any body parameters like `sid` or `auth`.
+* **The Goal:** Ensure state-changing actions (like disabling a host) require more than just a cookie.
+* **Step-by-Step:**
+    1.  Go to **Data collection > Hosts**. Click "Disable" on a host.
+    2.  In **Burp Repeater**, locate the `sid` parameter in the JSON body or URL.
+    3.  Delete the `sid` and send the request.
 * **Validation:**
-    * **PASS:** Server returns `403 Forbidden`.
-    * **FAIL:** The request is processed successfully.
+    * **PASS:** Server returns `403 Forbidden` or an "Incorrect SID" error.
+    * **FAIL:** The action is performed successfully.
+
 
 
 ---
 
-### 6. Logout & Session Hijacking (The "Kill" Test)
-* **The Goal:** Ensure the session is destroyed on the server, not just the browser.
-* **Tool:** **Burp Repeater**.
-* **Method:** 1.  Copy your `zbx_session` while logged in.
-    2.  Log out in the browser. 
-    3.  Replay the request in Repeater using the old cookie.
+### 6. Logout Functionality & Server-Side Invalidation
+* **The Goal:** Ensure the session is "dead" on the server, not just deleted from the browser.
+* **Step-by-Step:**
+    1.  Capture a dashboard request in **Repeater**.
+    2.  Click **Logout** in your browser.
+    3.  Go back to **Repeater** and send the request again.
 * **Validation:**
-    * **PASS:** Server returns `401 Unauthorized`.
-    * **FAIL:** Server returns `200 OK` (Your current finding).
-
+    * **PASS:** `401 Unauthorized` or `302 Redirect` to login.
+    * **FAIL:** `200 OK` (This is your current finding: the session is still active on the server).
 
 ---
 
 ### 7. Hard Session Timeout (15 Minutes)
-* **The Goal:** Enforce a strict inactivity limit.
-* **Tool:** **Stopwatch** & **Repeater**.
-* **Method:** Leave the session idle for 16 minutes. Resend the request.
+* **The Goal:** Enforce inactivity expiration.
+* **Step-by-Step:**
+    1.  Log in. Close the tab. Do not interact for 16 minutes.
+    2.  Re-open the tab or replay the request in **Repeater**.
 * **Validation:**
-    * **PASS:** Session is expired/invalid.
-    * **FAIL:** Request still works (Your "5-day persistence" finding).
+    * **PASS:** Session is expired; you are forced to re-login.
+    * **FAIL:** Access is granted (Your "5-day persistence" finding).
 
 ---
 
 ### 8. Session Variable Overloading (Puzzling)
-* **The Goal:** Ensure variables from one module don't leak into another.
-* **Tool:** **Two Browser Tabs**.
-* **Method:** Start a sensitive action (e.g., "Change Password") in Tab 1. In Tab 2, navigate to a different user's profile. Finish the action in Tab 1.
+* **The Goal:** Ensure variables don't leak between different modules or users.
+* **Step-by-Step:**
+    1.  **Tab 1:** Open the "User Profile" page for User A.
+    2.  **Tab 2:** Open the "Data collection" page for Host Group B.
+    3.  In **Tab 1**, click "Save."
 * **Validation:**
-    * **PASS:** The action only affects the original user.
-    * **FAIL:** The application gets confused and applies the action to the user from Tab 2.
+    * **PASS:** Only User A's profile is updated.
+    * **FAIL:** The application mistakenly applies settings to the host group or crashes because variables were "puzzled."
 
 ---
 
 ### 9. Multiple Concurrent Sessions
-* **The Goal:** Prevent a single account from having multiple active sessions.
-* **Tool:** **Chrome** and **Firefox**.
-* **Method:** Log in on Chrome. Then log in as the same user on Firefox. Go back to Chrome and refresh.
+* **The Goal:** Prevent a single account from being used in multiple locations simultaneously.
+* **Step-by-Step:**
+    1.  Log in on **Chrome**.
+    2.  Log in as the *same user* on **Firefox**.
+    3.  Refresh the page on **Chrome**.
 * **Validation:**
-    * **PASS:** Chrome is logged out.
-    * **FAIL:** Both sessions remain active (This is how your "Ghost Tokens" were able to work).
+    * **PASS:** The Chrome session is automatically terminated.
+    * **FAIL:** Both browsers remain logged in at the same time.
 
 ---
 
-### Professional Documentation Summary
+### Summary Checklist for the Report
 
-| Test | Tool | Pass Evidence | Fail Evidence |
+| Test Case | Method | Pass | Fail |
 | :--- | :--- | :--- | :--- |
-| **Randomness** | Sequencer | FIPS 140-2 Excellent | Significant Patterns |
-| **Logout** | Repeater | 401 Unauthorized | 200 OK (Access) |
-| **Timeout** | Repeater | Reject after 15 mins | 200 OK after 5 days |
-| **Attributes** | Proxy | `Secure; HttpOnly` | Flag Missing |
-| **CSRF** | PoC Gen | 403 Forbidden | Action Completed |
+| **Randomness** | Sequencer | High Entropy | Patterns Found |
+| **Logout** | Repeater | Reject after logout | Accept after logout |
+| **Timeout** | Stopwatch | Inactive at 15m | Active at 5 days |
+| **Attributes** | Proxy | `Secure; HttpOnly` | Flags missing |
+| **Concurrent** | 2 Browsers | Kills old session | Multiple sessions |
 
-Since you have already confirmed the **Logout Kill** and **Timeout** tests are failing, you have a solid "High" severity finding for your report. Use the "Ghost Token" explanation to prove that the server relies on signatures rather than state.
+**Next Step:** Since you have confirmed the **Logout** and **Timeout** tests are currently failing, focus your report on the **Server-Side State Management** failure. This is the root cause for both findings.

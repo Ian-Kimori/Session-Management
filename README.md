@@ -29,11 +29,8 @@ To test these professionally, you must combine **automated statistical analysis*
 * **The Goal:** Ensure the server forces a new ID upon login.
 * **Tool:** **DevTools** (Application Tab).
 * **Method:**
-
   1.  Note the `sessionid` on the login page (pre-auth).
-  
   2.  Log in.
-  
   3.  Compare the new `sessionid` to the pre-auth value.
 * **Validation:**
     * **PASS:** The value changes completely.

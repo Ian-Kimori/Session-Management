@@ -8,7 +8,8 @@ To test these professionally, you must combine **automated statistical analysis*
 * **The Goal:** Prove the `sessionid` cannot be predicted.
 * **Tool:** **Burp Sequencer**.
 * **Method:** Capture your request. Right-click the `zbx_session` cookie -> **Send to Sequencer**. Highlight only the `sessionid` value. Run for **1,500+ samples**.
-* **Validation:** * **PASS:** Entropy > 100 bits. FIPS 140-2 tests show "Excellent" randomness.
+* **Validation:**
+    * **PASS:** Entropy > 100 bits. FIPS 140-2 tests show "Excellent" randomness.
     * **FAIL:** Significant bit-level patterns found.
 
 
@@ -27,9 +28,13 @@ To test these professionally, you must combine **automated statistical analysis*
 ### 3. Session Fixation
 * **The Goal:** Ensure the server forces a new ID upon login.
 * **Tool:** **DevTools** (Application Tab).
-* **Method:** 1.  Note the `sessionid` on the login page (pre-auth).
-    2.  Log in. 
-    3.  Compare the new `sessionid` to the pre-auth value.
+* **Method:**
+
+  1.  Note the `sessionid` on the login page (pre-auth).
+  
+  2.  Log in.
+  
+  3.  Compare the new `sessionid` to the pre-auth value.
 * **Validation:**
     * **PASS:** The value changes completely.
     * **FAIL:** The ID remains the same, allowing an attacker to "fix" a victim's ID.

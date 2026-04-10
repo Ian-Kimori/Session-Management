@@ -1,6 +1,8 @@
 # Session-Management
 
-# Session Management Audit — Universal Web Application Methodology
+# Session Management Audit
+
+# Universal Web Application Methodology
 
 Applies to any web application. Tested with Burp Suite Pro. All steps are self-contained and repeatable.
 
